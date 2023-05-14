@@ -23,7 +23,10 @@ float Plane::intersect(glm::vec3 p0, glm::vec3 dir)
     float t = glm::dot(vdif, n)/d_dot_n;
 	if(t < 0) return -1;
 
-    return t;
+	glm::vec3 q = p0 + dir * t; //Point of intersection
+	if (isInside(q)) return t; //Inside the plane
+	else return -1; //Outside
+
 }
 
 /**
