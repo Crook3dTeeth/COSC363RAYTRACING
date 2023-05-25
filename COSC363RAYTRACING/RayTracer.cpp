@@ -23,12 +23,18 @@
 using namespace std;
 
 const float EDIST = 40.0;
-const int NUMDIV = 800;
-const int MAX_STEPS = 10;
+const int NUMDIV = 600;
+const int MAX_STEPS = 5;
 const float XMIN = -10.0;
 const float XMAX = 10.0;
 const float YMIN = -10.0;
 const float YMAX = 10.0;
+
+// Extra rendering features
+const int AAType = 0;		// 0 = off, 1 = basic, 2 = adaptive
+const bool FOG = false;		// Fog rendering
+const float fogZ1 = -120.0;
+const float fogZ2 = -200.0;
 
 vector<SceneObject*> sceneObjects;
 TextureBMP texture;
@@ -42,6 +48,7 @@ glm::vec3 trace(Ray ray, int step)
 	glm::vec3 backgroundCol(0);						//Background colour = (0,0,0)
 	glm::vec3 lightPos(0, 10, -5);					//Light's position
 	glm::vec3 color(0);
+	glm::vec3 refrColor(0);							// refraction color
 	SceneObject* obj;
 
     ray.closestPt(sceneObjects);					//Compare the ray with all objects in the scene
@@ -51,9 +58,10 @@ glm::vec3 trace(Ray ray, int step)
 	color = obj->lighting(lightPos, ray.dir, ray.hit);
 
 
+	//chequered pattern on the floor plane
 	if (ray.index == 1)
 	{
-		//chequered pattern
+		
 		int stripeWidth = 5;
 		int iz = (ray.hit.z) / stripeWidth;
 		int ix = (ray.hit.x) / stripeWidth;
@@ -80,13 +88,21 @@ glm::vec3 trace(Ray ray, int step)
 	}
 
 
-							//Object's colour
+	//Object's colour
 	glm::vec3 lightVec = lightPos - ray.hit;
 	Ray shadowRay(ray.hit, lightVec);
 	shadowRay.closestPt(sceneObjects);
-	if (shadowRay.index > -1 && shadowRay.dist < glm::length(lightVec))
-		color = 0.2f * obj->getColor(); //0.2 = ambient scale factor
+	if (shadowRay.index > -1 && shadowRay.dist < glm::length(lightVec)) {
+		if (sceneObjects[shadowRay.index]->isTransparent()) {
+			float transparencyCoeff = sceneObjects[shadowRay.index]->getTransparencyCoeff() * 0.5;
+			color *= ((transparencyCoeff) * obj->getColor());
+		} else {
+			color *= 0.2f * obj->getColor();
+		}
+	}
 
+
+	// Reflective surfaces
 	if (obj->isReflective() && step < MAX_STEPS)
 	{
 		float rho = obj->getReflectionCoeff();
@@ -97,8 +113,86 @@ glm::vec3 trace(Ray ray, int step)
 		color = color + (rho * reflectedColor);
 	}
 
+	// transparency and refractivity
+	if (obj->isTransparent() && step < MAX_STEPS) {
+		if (obj->isRefractive()) {
+			// refractive sphere
+
+			if (ray.index == 0) {
+				float eta = (1 / (obj->getRefractiveIndex()));
+
+				glm::vec3 n = obj->normal(ray.hit);
+				glm::vec3 g = glm::refract(ray.dir, n, eta);
+
+				Ray refrRay(ray.hit, g);
+				refrRay.closestPt(sceneObjects);
+
+				glm::vec3 m = obj->normal(refrRay.hit);
+				glm::vec3 h = glm::refract(g, -m, 1.0f / eta);
+
+				Ray refrRay2(refrRay.hit, h);
+				refrRay2.closestPt(sceneObjects);
+
+				if (refrRay2.index == -1) return backgroundCol;
+				glm::vec3 refColor2 = trace(refrRay2, step + 1);
+				
+				refrColor += refColor2 * (1 - 0.2f);
+				return refrColor + (obj->getColor() * (1-obj->getTransparencyCoeff()));
+			}
+
+		} else {
+			// object is only transparent n1 = n2
+		}
+	}
+
+	color += refrColor;
+
+	// calculates fog
+	if (FOG) {
+		glm::vec3 fogCol(0.5, 0.5, 0.5);
+		if (ray.hit.z < fogZ2) {
+			color = glm::vec3(0.5, 0.5, 0.5);
+		} else {
+			float lamda = (ray.hit.z - fogZ1) / (fogZ2 - fogZ1);
+			color = ((1 - lamda) * color) + (lamda * fogCol);
+		}
+	}
+
 	return color;
 }
+
+//--- Basic Anti Aliasing ---------------------------------------------------------------
+// Performs basic anit aliasing on the scene
+// Attemp 1, splits each pixel into 4 sub pixels and calculates the average of the
+// 4 colors
+//---------------------------------------------------------------------------------------
+glm::vec3 basicAA(Ray ray, float xp, float yp, float cellXSub, float cellYSub, glm::vec3 eye)
+{
+	float x1 = xp;
+	float y1 = yp;
+
+	float x2 = xp + cellXSub;
+	float y2 = yp;
+
+	float x3 = xp + cellXSub;
+	float y3 = yp + cellYSub;
+
+	float x4 = xp;
+	float y4 = yp + cellYSub;
+
+	float cellX = (XMAX - XMIN) / NUMDIV;  //cell width
+	float cellY = (YMAX - YMIN) / NUMDIV;  //cell height
+
+
+	glm::vec3 col1 = trace(Ray(eye, glm::vec3(x1 + cellXSub, y1 + cellYSub, -EDIST)), 1);
+	glm::vec3 col2 = trace(Ray(eye, glm::vec3(x2 + cellXSub, y2 + cellYSub, -EDIST)), 1);
+	glm::vec3 col3 = trace(Ray(eye, glm::vec3(x3 + cellXSub, y3 + cellYSub, -EDIST)), 1);
+	glm::vec3 col4 = trace(Ray(eye, glm::vec3(x4 + cellXSub, y4 + cellYSub, -EDIST)), 1);
+
+
+	return (col1 + col2 + col3 + col4) / 4.0f;
+}
+
 
 //---The main display module ------------------------------------------------------------
 // In a ray tracing application, it just displays the ray traced image by drawing
@@ -135,35 +229,22 @@ void display()
 
 			glm::vec3 col(0);
 
-			bool AA = false;
-			if (AA) {
-				float x1 = xp;
-				float y1 = yp;
-
-				float x2 = xp + cellXSub;
-				float y2 = yp;
-
-				float x3 = xp + cellXSub;
-				float y3 = yp + cellYSub;
-
-				float x4 = xp;
-				float y4 = yp + cellYSub;
-
-
-				glm::vec3 col1 = trace(Ray(eye, glm::vec3(x1 + cellXSub, y1 + cellYSub, -EDIST)), 1);
-				glm::vec3 col2 = trace(Ray(eye, glm::vec3(x2 + cellXSub, y2 + cellYSub, -EDIST)), 1);
-				glm::vec3 col3 = trace(Ray(eye, glm::vec3(x3 + cellXSub, y3 + cellYSub, -EDIST)), 1);
-				glm::vec3 col4 = trace(Ray(eye, glm::vec3(x4 + cellXSub, y4 + cellYSub, -EDIST)), 1);
-
-
-				
-
-
-				col = (col1 + col2 + col3 + col4) / 4.0f;
-			} else {
+			switch (AAType)
+			{
+			case 0:
 				col = trace(ray, 1); //Trace the primary ray and get the colour value
+				break;
+			case 1:
+				col = basicAA(ray, xp, yp, cellXSub, cellYSub, eye);
+				break;
+
+			default:
+				col = trace(ray, 1); //Trace the primary ray and get the colour value
+				break;
 			}
 
+
+			// First attempt at adaptive anti aliasing
 			bool AA2 = false;
 			if (AA2) {
 				int iOffset;
@@ -231,16 +312,16 @@ void display()
 						}
 					}
 				}
-
-
-
 			}
 
+			// First try at anti aliasing that random youtube comment suggested
 			bool AA3 = false;
 			if (AA3) {
 				// Cast ray in corner of pixel to blend, free AA for not much performance hit : https://www.youtube.com/watch?v=A61S_2swwAc
 
 			}
+
+
 
 			glColor3f(col.r, col.g, col.b);
 			glVertex2f(xp, yp);				//Draw each cell with its color value
@@ -270,12 +351,12 @@ void initialize()
     glClearColor(0, 0, 0, 1);
 
 	
-	Sphere* sphere1 = new Sphere(glm::vec3(-5, 0.0, -50.0), 2.0);
+	//Sphere* refractiveSphere = new Sphere(glm::vec3(-5, 0.0, -50.0), 2.0);
+	Sphere* refractiveSphere = new Sphere(glm::vec3(0, 0.0, -50.0), 5.0);
 
-	sphere1->setColor(glm::vec3(0, 0, 1));   //Set colour to blue
-	sphere1->setReflectivity(true, 0.8);
-	//sphere1->setTransparency(true, 1);
-	//sphere1->setRefractivity(true, 1.01, 2);
+	refractiveSphere->setColor(glm::vec3(0, 0, 1));   //Set colour to blue
+	refractiveSphere->setTransparency(true, 1);
+	refractiveSphere->setRefractivity(true, 1.5, 1.01);
 
 
 	// Half width
@@ -372,7 +453,7 @@ void initialize()
 	backMirror->setColor(glm::vec3(0, 0, 0));
 	backMirror->setReflectivity(true, 1);	
 
-	sceneObjects.push_back(sphere1);		 //Add sphere to scene objects
+	sceneObjects.push_back(refractiveSphere);		 //Add sphere to scene objects
 
 	sceneObjects.push_back(chequeredFloor);
 	sceneObjects.push_back(frontWall);
@@ -380,15 +461,15 @@ void initialize()
 	sceneObjects.push_back(rightWall);
 	sceneObjects.push_back(topWall);
 	sceneObjects.push_back(backWall);
-	//sceneObjects.push_back(frontMirror);
-	//sceneObjects.push_back(backMirror);
+	sceneObjects.push_back(frontMirror);
+	sceneObjects.push_back(backMirror);
 }
 
 
 int main(int argc, char *argv[]) {
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB );
-    glutInitWindowSize(700, 700);
+    glutInitWindowSize(600, 600);
     glutInitWindowPosition(20, 20);
     glutCreateWindow("Raytracing");
 
