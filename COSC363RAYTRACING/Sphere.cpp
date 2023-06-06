@@ -24,13 +24,18 @@ float Sphere::intersect(glm::vec3 p0, glm::vec3 dir)
 
     float t1 = -b - sqrt(delta);
     float t2 = -b + sqrt(delta);
+    float b1 = t1;
+    float b2 = t2;
 
-	if (t1 < 0)
-	{
-		return (t2 > 0) ? t2 : -1;
-	}
-	else return t1;
+
+    if (t1 < 0)
+    {
+        return (t2 > 0) ? t2 : -1;
+    }
+    else return t1;
 }
+
+
 
 /**
 * Returns the unit normal vector at a given point.
@@ -38,7 +43,10 @@ float Sphere::intersect(glm::vec3 p0, glm::vec3 dir)
 */
 glm::vec3 Sphere::normal(glm::vec3 p)
 {
-    glm::vec3 n = p - center;
-    n = glm::normalize(n);
+    glm::vec3 d = p - center;
+    glm::vec3 n = glm::normalize(d);
+    if (glm::dot(n, d) < 0) {
+        return -n;
+    }
     return n;
 }

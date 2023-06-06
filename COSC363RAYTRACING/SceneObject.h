@@ -34,7 +34,7 @@ public:
 	virtual glm::vec3 normal(glm::vec3 pos) = 0;
 	virtual ~SceneObject() {}
 
-	glm::vec3 lighting(glm::vec3 lightPos, glm::vec3 viewVec, glm::vec3 hit);
+	glm::vec3 lighting(glm::vec3 lightPos, glm::vec3 lightPos2, glm::vec3 viewVec, glm::vec3 hit);
 	void setColor(glm::vec3 col);
 	void setReflectivity(bool flag);
 	void setReflectivity(bool flag, float refl_coeff);

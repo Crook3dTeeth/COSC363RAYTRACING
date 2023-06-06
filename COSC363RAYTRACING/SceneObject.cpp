@@ -14,13 +14,16 @@ glm::vec3 SceneObject::getColor()
 	return color_;
 }
 
-glm::vec3 SceneObject::lighting(glm::vec3 lightPos, glm::vec3 viewVec, glm::vec3 hit)
+glm::vec3 SceneObject::lighting(glm::vec3 lightPos, glm::vec3 lightPos2, glm::vec3 viewVec, glm::vec3 hit)
 {
-	float ambientTerm = 0.2;
+	float ambientTerm = 0.05;
 	float diffuseTerm = 0;
 	float specularTerm = 0;
+
 	glm::vec3 normalVec = normal(hit);
+	
 	glm::vec3 lightVec = lightPos - hit;
+
 	lightVec = glm::normalize(lightVec);
 	float lDotn = glm::dot(lightVec, normalVec);
 	if (spec_)
@@ -29,7 +32,20 @@ glm::vec3 SceneObject::lighting(glm::vec3 lightPos, glm::vec3 viewVec, glm::vec3
 		float rDotv = glm::dot(reflVec, viewVec);
 		if (rDotv > 0) specularTerm = pow(rDotv, shin_);
 	}
-	glm::vec3 colorSum = ambientTerm * color_ + lDotn * color_ + specularTerm * glm::vec3(1);
+	//glm::vec3 colorSum = ambientTerm * color_ + lDotn * color_ + specularTerm * glm::vec3(1);
+	
+	
+	glm::vec3 lightVec2 = lightPos2 - hit;
+	lightVec2 = glm::normalize(lightVec2);
+	float lDotn2 = glm::dot(lightVec2, normalVec);
+	if (spec_)
+	{
+		glm::vec3 reflVec2 = glm::reflect(-lightVec2, normalVec);
+		float rDotv2 = glm::dot(reflVec2, viewVec);
+		if (rDotv2 > 0) specularTerm += pow(rDotv2, shin_);
+	}
+	glm::vec3 colorSum = ambientTerm * color_ + lDotn * color_ + lDotn2 * color_ + specularTerm * glm::vec3(1);
+
 	return colorSum;
 }
 
